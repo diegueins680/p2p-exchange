@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 This project is a combination of a working web application and a tutorial.
 The inline comments should guide you through an understanding of how this
 application works.
@@ -19,3 +20,9 @@ Feel free to set the Main module as the target and run this application immediat
 see what the result is. Then come back, read the code, experiment with some changes,
 and rerun the application. If at any point you want to undo your changes, use the "Git"
 top menu and select "Reset".
+=======
+p2p-exchange
+============
+
+An easy to install program providing democratic personal websites
+>>>>>>> d21d1078ed2769a9b666f90335c5826b826fad9c
