@@ -53,4 +53,6 @@ mkYesodData "App" [parseRoutes|
 /         HomeR     GET
 /markdown MarkdownR PUT
 /fib/#Int FibR      GET
+/getState State  GET
+/updateState UpdateState POST
 |]
