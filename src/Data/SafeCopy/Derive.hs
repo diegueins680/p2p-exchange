@@ -1,6 +1,3 @@
-
-
-
 {-# LANGUAGE TemplateHaskell, CPP #-}
 module Data.SafeCopy.Derive
     (
@@ -390,4 +387,3 @@ typeName ListT       = "List"
 typeName (AppT t u)  = typeName t ++ typeName u
 typeName (SigT t _k) = typeName t
 typeName _           = "_"
-

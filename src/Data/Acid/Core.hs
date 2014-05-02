@@ -1,6 +1,4 @@
-
-
-{-# LANGUAGE GADTs, DeriveDataTypeable, TypeFamilies,
+{-# LANGUAGE CPP, GADTs, DeriveDataTypeable, TypeFamilies,
              FlexibleContexts, BangPatterns #-}
 -----------------------------------------------------------------------------
 -- |
@@ -48,9 +46,29 @@ import Data.ByteString.Lazy.Char8 as Lazy ( pack, unpack )
 import Data.Serialize                     ( runPutLazy, runGetLazy )
 import Data.SafeCopy                      ( SafeCopy, safeGet, safePut )
 
-import Data.Typeable                      ( Typeable, typeOf )
+import Data.Typeable                      ( Typeable, TypeRep, typeOf )
 import Unsafe.Coerce                      ( unsafeCoerce )
 
+#if MIN_VERSION_base(4,4,0)
+
+import Data.Typeable.Internal             ( TypeRep (..), tyConModule )
+
+-- in base >= 4.4 the Show instance for TypeRep no longer provides a
+-- fully qualified name. But we have old data around that expects the
+-- FQN. So we will recreate the old naming system for newer versions
+-- of base. We could do something better, but happstack-state is
+-- end-of-life anyway.
+showQualifiedTypeRep :: TypeRep -> String
+showQualifiedTypeRep tr =
+    let (TypeRep _f con _rep) = tr
+    in tyConModule con ++ "." ++ show tr
+
+#else
+
+showQualifiedTypeRep :: TypeRep -> String
+showQualifiedTypeRep tr = show tr
+
+#endif
 
 -- | The basic Method class. Each Method has an indexed result type
 --   and a unique tag.
@@ -60,7 +78,7 @@ class ( Typeable ev, SafeCopy ev
     type MethodResult ev
     type MethodState ev
     methodTag :: ev -> Tag
-    methodTag ev = Lazy.pack (show (typeOf ev))
+    methodTag ev = Lazy.pack (showQualifiedTypeRep (typeOf ev))
 
 -- | The control structure at the very center of acid-state.
 --   This module provides access to a mutable state through

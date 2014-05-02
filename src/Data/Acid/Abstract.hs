@@ -1,7 +1,8 @@
-{-# LANGUAGE RankNTypes, TypeFamilies, GADTs #-}
+{-# LANGUAGE RankNTypes, TypeFamilies, GADTs, CPP #-}
 module Data.Acid.Abstract
     ( AcidState(..)
     , scheduleUpdate
+    , groupUpdates
     , update
     , update'
     , query
@@ -15,11 +16,20 @@ import Data.Acid.Core
 
 import Control.Concurrent      ( MVar, takeMVar )
 import Data.ByteString.Lazy    ( ByteString )
+import Control.Monad           ( void )
 import Control.Monad.Trans     ( MonadIO(liftIO) )
+#if __GLASGOW_HASKELL__ >= 707
+import Data.Typeable           ( Typeable, gcast, typeOf )
+#else
 import Data.Typeable           ( Typeable1, gcast1, typeOf1 )
+#endif
 
 data AnyState st where
+#if __GLASGOW_HASKELL__ >= 707
+  AnyState :: Typeable sub_st => sub_st st -> AnyState st
+#else
   AnyState :: Typeable1 sub_st => sub_st st -> AnyState st
+#endif
 
 -- Haddock doesn't get the types right on its own.
 {-| State container offering full ACID (Atomicity, Consistency, Isolation and Durability)
@@ -36,12 +46,12 @@ data AnyState st where
                    (both those caused by hardware and software).
 -}
 data AcidState st
-  = AcidState { 
+  = AcidState {
                 _scheduleUpdate :: forall event. (UpdateEvent event, EventState event ~ st) => event -> IO (MVar (EventResult event))
               , scheduleColdUpdate :: Tagged ByteString -> IO (MVar ByteString)
               , _query :: (QueryEvent event, EventState event ~ st)  => event -> IO (EventResult event)
               , queryCold :: Tagged ByteString -> IO ByteString
-              , 
+              ,
 -- | Take a snapshot of the state and save it to disk. Creating checkpoints
 --   makes it faster to resume AcidStates and you're free to create them as
 --   often or seldom as fits your needs. Transactions can run concurrently
@@ -49,7 +59,8 @@ data AcidState st
 --
 --   This call will not return until the operation has succeeded.
                 createCheckpoint :: IO ()
-              , 
+              , createArchive :: IO ()
+              ,
 -- | Close an AcidState and associated resources.
 --   Any subsequent usage of the AcidState will throw an exception.
                 closeAcidState :: IO ()
@@ -68,6 +79,17 @@ data AcidState st
 --   @
 scheduleUpdate :: UpdateEvent event => AcidState (EventState event) -> event -> IO (MVar (EventResult event))
 scheduleUpdate = _scheduleUpdate -- Redirection to make Haddock happy.
+
+-- | Schedule multiple Update events and wait for them to be durable, but
+--   throw away their results. This is useful for importing existing
+--   datasets into an AcidState.
+groupUpdates :: UpdateEvent event => AcidState (EventState event) -> [event] -> IO ()
+groupUpdates acidState events
+  = go events
+  where
+    go []     = return ()
+    go [x]    = void $ update acidState x
+    go (x:xs) = scheduleUpdate acidState x >> go xs
 
 -- | Issue an Update event and wait for its result. Once this call returns, you are
 --   guaranteed that the changes to the state are durable. Events may be issued in
@@ -89,14 +111,31 @@ query = _query -- Redirection to make Haddock happy.
 query' :: (QueryEvent event, MonadIO m) => AcidState (EventState event) -> event -> m (EventResult event)
 query' acidState event = liftIO (query acidState event)
 
+#if __GLASGOW_HASKELL__ >= 707
+mkAnyState :: Typeable sub_st => sub_st st -> AnyState st
+#else
 mkAnyState :: Typeable1 sub_st => sub_st st -> AnyState st
+#endif
 mkAnyState = AnyState
 
+#if __GLASGOW_HASKELL__ >= 707
+downcast :: (Typeable sub, Typeable st) => AcidState st -> sub st
+downcast AcidState{acidSubState = AnyState sub}
+  = r
+ where
+   r = case gcast (Just sub) of
+         Just (Just x) -> x
+         _ ->
+           error $
+            "Data.Acid: Invalid subtype cast: " ++ show (typeOf sub) ++ " -> " ++ show (typeOf r)
+#else
 downcast :: Typeable1 sub => AcidState st -> sub st
 downcast AcidState{acidSubState = AnyState sub}
-  = case gcast1 (Just sub) of
-      Just (Just typed_sub_struct) -> typed_sub_struct `asTypeOf` result
-      Nothing -> error $ "Data.Acid: Invalid subtype cast: " ++ show tag ++ " -> " ++ show (typeOf1 result)
-  where result = undefined
-        tag = show (typeOf1 sub)
-
+  = r
+ where
+   r = case gcast1 (Just sub) of
+         Just (Just x) -> x
+         _ ->
+           error $
+            "Data.Acid: Invalid subtype cast: " ++ show (typeOf1 sub) ++ " -> " ++ show (typeOf1 r)
+#endif
